@@ -1,0 +1,833 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ระบบตรวจสอบข้อมูลเบิกซ้ำจากระบบสแกนลงชื่อปฏิบัติงาน</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/file-saver@2.0.5/dist/FileSaver.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/docx@8.5.0/build/index.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.0.4/dist/tesseract.min.js"></script>
+
+<style>
+  :root{
+    --navy:#17324f; --navy-deep:#0e2138;
+    --gold:#a9812f; --gold-light:#d9b46a;
+    --paper:#f6f4ee; --card:#ffffff;
+    --ink:#26313d; --ink-soft:#5b6774; --line:#dcd5c4;
+    --ok:#2f6b4f; --ok-bg:#eef4ee;
+    --warn:#8a5a12; --warn-bg:#faf1e2;
+    --bad:#8a332c; --bad-bg:#fbecea;
+  }
+  *{ box-sizing:border-box; }
+  body{
+    margin:0; min-height:100vh;
+    background: radial-gradient(1200px 600px at 50% -10%, #1e3d5f 0%, var(--navy) 45%, var(--navy-deep) 100%);
+    font-family:'Sarabun', sans-serif; color:var(--ink);
+    display:flex; justify-content:center; padding:48px 16px 80px;
+  }
+  .page{ width:100%; max-width: 900px; }
+
+  .crest-row{ display:flex; align-items:center; justify-content:center; gap:12px; margin-bottom:22px; }
+  .crest-row .rule{ height:1px; flex:1; background:linear-gradient(90deg, transparent, rgba(217,180,106,.55), transparent); max-width:120px; }
+  .crest-row .mark{ width:44px; height:44px; border-radius:50%; border:1.5px solid var(--gold-light); display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+  .crest-row .mark svg{ width:22px; height:22px; }
+
+  h1{ text-align:center; color:#fff; font-weight:600; font-size:24px; margin:0 0 4px; }
+  .subtitle{ text-align:center; color:#b9c6d4; font-size:14px; margin:0 0 30px; }
+
+  .card{ background:var(--card); border-radius:6px; box-shadow:0 18px 40px rgba(6,20,36,.28); overflow:hidden; border:1px solid rgba(255,255,255,.06); margin-bottom:22px; }
+  .card-band{ height:5px; background:linear-gradient(90deg, var(--gold) 0%, var(--gold-light) 50%, var(--gold) 100%); }
+  .card-body{ padding:26px 28px; }
+  .card-title{ font-size:17px; font-weight:600; color:var(--navy); margin:0 0 4px; }
+  .card-desc{ font-size:13.5px; color:var(--ink-soft); margin:0 0 18px; line-height:1.6; }
+
+  .dropzone{
+    border: 1.5px dashed #c9c2ae; border-radius:6px; padding: 30px 18px;
+    text-align:center; cursor:pointer; background:#fdfcf9; transition: border-color .15s, background .15s;
+  }
+  .dropzone:hover, .dropzone.drag{ border-color:var(--navy); background:#f3f6f9; }
+  .dropzone .dz-icon{ color:var(--gold); margin-bottom:10px; }
+  .dropzone .dz-title{ font-weight:600; color:var(--navy); font-size:15px; }
+  .dropzone .dz-sub{ font-size:12.5px; color:var(--ink-soft); margin-top:4px; }
+  #file-input{ display:none; }
+  .file-chip{
+    display:none; align-items:center; gap:10px; margin-top:14px; padding:10px 14px;
+    background:var(--ok-bg); border:1px solid #c9dccd; border-radius:4px; font-size:13.5px; color:var(--ok);
+  }
+  .file-chip.show{ display:flex; }
+  .file-chip .name{ font-weight:600; flex:1; word-break:break-all; }
+  .file-chip button{ background:none; border:none; color:var(--ink-soft); cursor:pointer; font-size:13px; }
+
+  #status-msg{ margin-top:14px; font-size:13.5px; padding:10px 14px; border-radius:4px; display:none; }
+  #status-msg.info{ display:block; background:var(--paper); color:var(--ink-soft); border-left:3px solid var(--gold); }
+  #status-msg.err{ display:block; background:var(--bad-bg); color:var(--bad); border:1px solid #e2b7b2; }
+
+  .preview-wrap{ margin-top:18px; overflow-x:auto; display:none; }
+  .preview-wrap.show{ display:block; }
+  table{ border-collapse:collapse; width:100%; font-size:13px; }
+  th, td{ border:1px solid var(--line); padding:7px 10px; text-align:left; white-space:nowrap; }
+  th{ background:var(--paper); color:var(--navy); font-weight:600; }
+  .preview-wrap table{ min-width:600px; }
+
+  .mapping-grid{ display:grid; grid-template-columns: 1fr 1fr; gap:16px 20px; margin-top:4px; }
+  @media (max-width:560px){ .mapping-grid{ grid-template-columns: 1fr; } }
+  .map-field label{ display:block; font-size:13.5px; font-weight:600; color:var(--navy); margin-bottom:6px; }
+  .map-field .req{ color:var(--bad); }
+  select{
+    width:100%; font-family:'Sarabun', sans-serif; font-size:14.5px; padding:9px 10px;
+    border:1px solid #c9c2ae; border-radius:4px; background:#fdfcf9; color:var(--ink);
+  }
+  select:focus{ outline:none; border-color:var(--navy); box-shadow:0 0 0 3px rgba(23,50,79,.12); background:#fff; }
+
+  .btn-row{ display:flex; gap:12px; margin-top:22px; flex-wrap:wrap; }
+  button.action{
+    font-family:'Sarabun', sans-serif; font-size:15px; font-weight:600; padding:11px 22px;
+    border-radius:4px; border:none; cursor:pointer; transition:filter .15s;
+  }
+  button.action:hover{ filter:brightness(1.06); }
+  button.action:disabled{ opacity:.45; cursor:not-allowed; }
+  .btn-primary{ background:var(--navy); color:#fff; }
+  .btn-secondary{ background:transparent; color:var(--ink-soft); border:1px solid var(--line); }
+  .btn-export{ background:var(--ok-bg); color:var(--ok); border:1px solid #c9dccd; }
+
+  .summary-row{ display:flex; gap:10px; flex-wrap:wrap; margin-bottom:20px; }
+  .stat{ flex:1; min-width:130px; background:var(--paper); border:1px solid var(--line); border-radius:4px; padding:14px 8px; text-align:center; }
+  .stat .num{ font-size:24px; font-weight:700; color:var(--navy); line-height:1; }
+  .stat .num.bad{ color:var(--bad); }
+  .stat .num.warn{ color:var(--warn); }
+  .stat .lbl{ font-size:12px; color:var(--ink-soft); margin-top:6px; }
+
+  .filter-row{ display:flex; align-items:center; gap:10px; margin-bottom:14px; font-size:13.5px; color:var(--ink-soft); }
+  .filter-row select{ width:auto; }
+
+  .status-tag{ display:inline-block; padding:3px 9px; border-radius:12px; font-size:12px; font-weight:600; white-space:nowrap; }
+  .status-tag.conflict{ background:var(--bad-bg); color:var(--bad); }
+  .status-tag.dup{ background:var(--warn-bg); color:var(--warn); }
+  .status-tag.ok{ background:var(--ok-bg); color:var(--ok); }
+
+  #results-wrap{ display:none; }
+  #results-wrap.show{ display:block; }
+  .results-table-wrap{ overflow-x:auto; }
+
+  footer{ text-align:center; color:#8ea1b5; font-size:12.5px; margin-top:10px; line-height:1.8; }
+
+  /* Print (PDF export) styles */
+  #print-area{ display:none; }
+  @media print{
+    body *{ visibility:hidden; }
+    #print-area, #print-area *{ visibility:visible; }
+    #print-area{ display:block; position:absolute; top:0; left:0; width:100%; padding:20px; }
+    #print-area h2{ font-size:18px; color:#17324f; margin-bottom:2px; }
+    #print-area .meta{ font-size:12px; color:#5b6774; margin-bottom:14px; }
+    #print-area table{ width:100%; border-collapse:collapse; font-size:11px; }
+    #print-area th, #print-area td{ border:1px solid #999; padding:5px 7px; }
+    #print-area th{ background:#eee; }
+  }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <div class="crest-row">
+    <span class="rule"></span>
+    <span class="mark">
+      <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M12 2L4 6v5c0 5 3.4 8.9 8 10 4.6-1.1 8-5 8-10V6l-8-4z" stroke="#d9b46a" stroke-width="1.4" stroke-linejoin="round"/>
+        <path d="M8.5 12.2l2.4 2.4 4.6-4.9" stroke="#d9b46a" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </span>
+    <span class="rule"></span>
+  </div>
+
+  <h1>ระบบตรวจสอบข้อมูลเบิกซ้ำ</h1>
+  <p class="subtitle">ตรวจสอบรายการซ้ำซ้อนจากระบบสแกนลงชื่อปฏิบัติงาน เช่น ไปราชการ ปฏิบัติงานนอกเวลา และปฏิบัติการพิเศษนอกที่ตั้ง</p>
+
+  <!-- STEP 1: UPLOAD -->
+  <div class="card">
+    <div class="card-band"></div>
+    <div class="card-body">
+      <p class="card-title">ขั้นตอนที่ 1 — นำเข้าข้อมูล</p>
+      <p class="card-desc">รองรับไฟล์ Excel (.xlsx, .xls, .csv), ไฟล์ PDF ที่เป็นข้อความ และภาพถ่าย/ภาพสแกน (.jpg, .png)<br>ควรมีอย่างน้อย 3 คอลัมน์ ได้แก่ ชื่อ-สกุล, วันที่ และประเภทกิจกรรม<br>สำหรับภาพถ่าย ควรถ่ายให้ตรง ไม่เอียง แสงสว่างสม่ำเสมอ และตัวหนังสือคมชัด เพื่อความแม่นยำในการอ่าน</p>
+
+      <div class="dropzone" id="dropzone">
+        <div class="dz-icon">
+          <svg width="30" height="30" viewBox="0 0 24 24" fill="none"><path d="M12 3v12m0-12l-4 4m4-4l4 4M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2" stroke="#a9812f" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </div>
+        <div class="dz-title">คลิกเพื่อเลือกไฟล์ หรือลากไฟล์มาวางที่นี่</div>
+        <div class="dz-sub">.xlsx · .xls · .csv · .pdf · .jpg · .png</div>
+      </div>
+      <input type="file" id="file-input" accept=".xlsx,.xls,.csv,.pdf,.jpg,.jpeg,.png,.webp">
+
+      <div class="file-chip" id="file-chip">
+        <span class="name" id="file-name"></span>
+        <button id="file-clear" type="button">ลบไฟล์</button>
+      </div>
+
+      <div id="status-msg"></div>
+
+      <div class="preview-wrap" id="preview-wrap">
+        <p class="card-desc" style="margin-bottom:8px;">ตัวอย่างข้อมูลที่อ่านได้ (5 แถวแรก)</p>
+        <div id="preview-table"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- STEP 2: MAPPING -->
+  <div class="card" id="mapping-card" style="display:none;">
+    <div class="card-band"></div>
+    <div class="card-body">
+      <p class="card-title">ขั้นตอนที่ 2 — ระบุคอลัมน์ข้อมูล</p>
+      <p class="card-desc">เลือกว่าคอลัมน์ใดในไฟล์ตรงกับข้อมูลแต่ละประเภท<br>
+      ระบบจะจัดกลุ่มข้อความในคอลัมน์ "ประเภทกิจกรรม" เป็น 7 หมวดอัตโนมัติ ได้แก่
+      <b>ไปราชการ</b>, <b>ศึกษา อบรม</b>, <b>ปฏิบัติการพิเศษ</b>, <b>ปฏิบัติงานล่วงเวลา</b>,
+      <b>ลาป่วย</b>, <b>ลาพักผ่อน</b> และ <b>ปฏิบัติงานปกติ</b>
+      (ข้อความที่ไม่ตรงกับหมวดใดจะแสดงตามที่กรอกไว้เดิม)</p>
+
+      <div class="mapping-grid">
+        <div class="map-field">
+          <label>ชื่อ-สกุล <span class="req">*</span></label>
+          <select id="map-name"></select>
+        </div>
+        <div class="map-field">
+          <label>วันที่ <span class="req">*</span></label>
+          <select id="map-date"></select>
+        </div>
+        <div class="map-field">
+          <label>ประเภทกิจกรรม / รายการที่เบิก <span class="req">*</span></label>
+          <select id="map-type"></select>
+        </div>
+        <div class="map-field">
+          <label>สถานที่ (ถ้ามี)</label>
+          <select id="map-location"></select>
+        </div>
+        <div class="map-field">
+          <label>เวลา (ถ้ามี)</label>
+          <select id="map-time"></select>
+        </div>
+        <div class="map-field">
+          <label>หมายเหตุ (ถ้ามี)</label>
+          <select id="map-note"></select>
+        </div>
+      </div>
+
+      <div class="btn-row">
+        <button class="action btn-primary" id="analyze-btn">ตรวจสอบข้อมูลซ้ำ</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- STEP 3: RESULTS -->
+  <div class="card" id="results-wrap">
+    <div class="card-band"></div>
+    <div class="card-body">
+      <p class="card-title">ผลการตรวจสอบ</p>
+
+      <div class="summary-row">
+        <div class="stat"><div class="num" id="s-total">0</div><div class="lbl">รายการทั้งหมด</div></div>
+        <div class="stat"><div class="num" id="s-people">0</div><div class="lbl">จำนวนบุคคล</div></div>
+        <div class="stat"><div class="num bad" id="s-conflict">0</div><div class="lbl">พบข้อมูลขัดแย้ง</div></div>
+        <div class="stat"><div class="num warn" id="s-dup">0</div><div class="lbl">พบรายการซ้ำ</div></div>
+      </div>
+
+      <div id="skip-note" class="card-desc" style="display:none; color:#8a5a12;"></div>
+
+      <div class="filter-row">
+        แสดง:
+        <select id="filter-select">
+          <option value="issue">เฉพาะรายการที่พบปัญหา</option>
+          <option value="all">ทั้งหมด</option>
+        </select>
+      </div>
+
+      <div class="results-table-wrap" id="results-table"></div>
+
+      <div class="btn-row">
+        <button class="action btn-export" id="export-excel">ดาวน์โหลด Excel</button>
+        <button class="action btn-export" id="export-word">ดาวน์โหลด Word</button>
+        <button class="action btn-export" id="export-pdf">ดาวน์โหลด PDF</button>
+        <button class="action btn-secondary" id="reset-all">เริ่มใหม่</button>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    ผลการตรวจสอบเป็นการช่วยคัดกรองเบื้องต้นจากข้อมูลที่นำเข้าเท่านั้น<br>
+    ควรตรวจสอบยืนยันกับต้นฉบับก่อนดำเนินการทางเอกสารทุกครั้ง
+  </footer>
+</div>
+
+<!-- Hidden printable area used for PDF export via browser print -->
+<div id="print-area">
+  <h2>รายงานผลการตรวจสอบข้อมูลเบิกซ้ำ</h2>
+  <div class="meta" id="print-meta"></div>
+  <div id="print-table"></div>
+</div>
+
+<script>
+(function(){
+  'use strict';
+
+  const $ = (id) => document.getElementById(id);
+  let rawRows = [];      // array of plain objects from parsed file
+  let headers = [];      // detected column headers
+  let analysisResults = []; // computed after mapping
+  let skippedCount = 0;
+
+  /* ---------------- File handling ---------------- */
+
+  const dropzone = $('dropzone');
+  const fileInput = $('file-input');
+
+  dropzone.addEventListener('click', () => fileInput.click());
+  dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('drag'); });
+  dropzone.addEventListener('dragleave', () => dropzone.classList.remove('drag'));
+  dropzone.addEventListener('drop', e => {
+    e.preventDefault();
+    dropzone.classList.remove('drag');
+    if (e.dataTransfer.files.length) handleFile(e.dataTransfer.files[0]);
+  });
+  fileInput.addEventListener('change', e => {
+    if (e.target.files.length) handleFile(e.target.files[0]);
+  });
+  $('file-clear').addEventListener('click', resetAll);
+
+  function showStatus(msg, isErr){
+    const el = $('status-msg');
+    el.textContent = msg;
+    el.className = isErr ? 'err' : 'info';
+  }
+  function clearStatus(){
+    const el = $('status-msg');
+    el.textContent = ''; el.className = '';
+  }
+
+  function handleFile(file){
+    clearStatus();
+    $('file-chip').classList.add('show');
+    $('file-name').textContent = file.name;
+
+    const ext = file.name.split('.').pop().toLowerCase();
+    if (['xlsx','xls','csv'].includes(ext)){
+      parseExcelFile(file);
+    } else if (ext === 'pdf'){
+      parsePdfFile(file);
+    } else if (['jpg','jpeg','png','webp'].includes(ext)){
+      parseImageFile(file);
+    } else {
+      showStatus('ไม่รองรับไฟล์ประเภทนี้ กรุณาใช้ .xlsx, .xls, .csv, .pdf, .jpg หรือ .png', true);
+    }
+  }
+
+  function parseExcelFile(file){
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try{
+        const data = new Uint8Array(e.target.result);
+        const wb = XLSX.read(data, { type:'array', cellDates:true });
+        const sheet = wb.Sheets[wb.SheetNames[0]];
+        const json = XLSX.utils.sheet_to_json(sheet, { defval:'' });
+        if (!json.length){ showStatus('ไม่พบข้อมูลในไฟล์ หรือไฟล์ว่างเปล่า', true); return; }
+        loadRows(json);
+        showStatus(`อ่านข้อมูลสำเร็จ ${json.length} แถว จากชีต "${wb.SheetNames[0]}"`, false);
+      }catch(err){
+        showStatus('ไม่สามารถอ่านไฟล์ Excel นี้ได้: ' + err.message, true);
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
+  function parsePdfFile(file){
+    if (typeof pdfjsLib === 'undefined'){
+      showStatus('ไม่สามารถโหลดตัวอ่านไฟล์ PDF ได้ กรุณาตรวจสอบการเชื่อมต่ออินเทอร์เน็ต', true);
+      return;
+    }
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    const reader = new FileReader();
+    reader.onload = async (e) => {
+      try{
+        const typedArray = new Uint8Array(e.target.result);
+        const pdf = await pdfjsLib.getDocument({ data: typedArray }).promise;
+        let items = [];
+        for (let p = 1; p <= pdf.numPages; p++){
+          const page = await pdf.getPage(p);
+          const content = await page.getTextContent();
+          content.items.forEach(it => {
+            items.push({ x: it.transform[4], y: it.transform[5], str: it.str, width: it.width || (it.str.length * 4) });
+          });
+        }
+        if (!items.length){
+          showStatus('ไม่พบข้อความในไฟล์ PDF นี้ (อาจเป็นไฟล์ภาพสแกน) กรุณาใช้ไฟล์ Excel หรือถ่ายภาพแทน', true);
+          return;
+        }
+        // pdf.js y-axis is bottom-up, so sort descending for top-to-bottom reading order
+        const lines = clusterRows(items, 3, true);
+        const table = linesToTable(lines, 12, false);
+        if (!table.length){
+          showStatus('ไม่สามารถแยกข้อมูลเป็นตารางได้ กรุณาใช้ไฟล์ Excel แทนเพื่อความแม่นยำ', true);
+          return;
+        }
+        loadRows(table);
+        showStatus(`อ่านข้อมูลจาก PDF แบบทดลอง ได้ ${table.length} แถว — กรุณาตรวจสอบตัวอย่างข้อมูลด้านล่างว่าถูกต้องก่อนดำเนินการต่อ`, false);
+      }catch(err){
+        showStatus('ไม่สามารถอ่านไฟล์ PDF นี้ได้: ' + err.message, true);
+      }
+    };
+    reader.readAsArrayBuffer(file);
+  }
+
+  function parseImageFile(file){
+    if (typeof Tesseract === 'undefined'){
+      showStatus('ไม่สามารถโหลดตัวอ่านข้อความจากภาพได้ กรุณาตรวจสอบการเชื่อมต่ออินเทอร์เน็ต', true);
+      return;
+    }
+    showStatus('กำลังอ่านข้อความจากภาพ... อาจใช้เวลาสักครู่', false);
+    runImageOcr(file);
+  }
+
+  async function runImageOcr(file){
+    let worker;
+    try{
+      worker = await Tesseract.createWorker('tha+eng', 1, {
+        logger: m => {
+          if (m.status === 'recognizing text' && typeof m.progress === 'number'){
+            showStatus(`กำลังอ่านข้อความจากภาพ... ${Math.round(m.progress*100)}%`, false);
+          }
+        }
+      });
+      const { data } = await worker.recognize(file);
+      await worker.terminate();
+
+      const items = (data.words || [])
+        .filter(w => w.text && w.text.trim())
+        .map(w => ({ x: w.bbox.x0, y: w.bbox.y0, str: w.text, width: w.bbox.x1 - w.bbox.x0 }));
+
+      if (!items.length){
+        showStatus('ไม่พบข้อความในภาพนี้ กรุณาถ่ายภาพให้ชัดเจนขึ้น หรือใช้ไฟล์ Excel แทน', true);
+        return;
+      }
+
+      // Image y-axis is top-down, sort ascending; wider tolerance since OCR word boxes vary in height
+      const lines = clusterRows(items, 14, false);
+      const table = linesToTable(lines, 26, true);
+      if (!table.length){
+        showStatus('ไม่สามารถแยกข้อมูลเป็นตารางจากภาพนี้ได้ กรุณาใช้ไฟล์ Excel แทนเพื่อความแม่นยำ', true);
+        return;
+      }
+      loadRows(table);
+      showStatus(`อ่านข้อความจากภาพแบบทดลอง ได้ ${table.length} แถว — ความแม่นยำขึ้นอยู่กับความชัดของภาพ กรุณาตรวจสอบตัวอย่างข้อมูลด้านล่างก่อนดำเนินการต่อ`, false);
+    }catch(err){
+      if (worker){ try{ await worker.terminate(); }catch(e){} }
+      showStatus('ไม่สามารถอ่านข้อความจากภาพนี้ได้: ' + err.message, true);
+    }
+  }
+
+  // Cluster items into visual rows by y-position (works for both PDF points and image pixels)
+  function clusterRows(items, tolerance, descending){
+    const sorted = [...items].sort((a,b) => descending ? b.y - a.y : a.y - b.y);
+    const clusters = [];
+    let current = null;
+    sorted.forEach(it => {
+      if (!current || Math.abs(it.y - current.avgY) > tolerance){
+        current = { avgY: it.y, items: [it] };
+        clusters.push(current);
+      } else {
+        current.items.push(it);
+        current.avgY = current.items.reduce((s,x) => s + x.y, 0) / current.items.length;
+      }
+    });
+    return clusters.map(c => c.items.sort((a,b) => a.x - b.x));
+  }
+
+  // Split each row's items into columns by x-gap, then build header/data table
+  function linesToTable(lines, gapThreshold, joinWithSpace){
+    const rows = lines.map(items => {
+      const cells = [];
+      let current = '';
+      let lastX = null;
+      items.forEach(it => {
+        if (lastX !== null && (it.x - lastX) > gapThreshold){
+          cells.push(current.trim());
+          current = '';
+        }
+        current += (joinWithSpace && current ? ' ' : '') + it.str;
+        lastX = it.x + it.width;
+      });
+      if (current.trim()) cells.push(current.trim());
+      return cells;
+    }).filter(r => r.length > 0);
+
+    if (!rows.length) return [];
+    const headerRow = rows[0];
+    const dataRows = rows.slice(1);
+    return dataRows.map(r => {
+      const obj = {};
+      headerRow.forEach((h, i) => { obj[h || ('คอลัมน์ ' + (i+1))] = r[i] !== undefined ? r[i] : ''; });
+      return obj;
+    });
+  }
+
+  function loadRows(json){
+    rawRows = json;
+    headers = Object.keys(json[0]);
+    renderPreview();
+    renderMapping();
+    $('mapping-card').style.display = 'block';
+    $('results-wrap').classList.remove('show');
+  }
+
+  function renderPreview(){
+    const rows = rawRows.slice(0, 5);
+    let html = '<table><thead><tr>' + headers.map(h => `<th>${escapeHtml(h)}</th>`).join('') + '</tr></thead><tbody>';
+    rows.forEach(r => {
+      html += '<tr>' + headers.map(h => `<td>${escapeHtml(String(r[h] ?? ''))}</td>`).join('') + '</tr>';
+    });
+    html += '</tbody></table>';
+    $('preview-table').innerHTML = html;
+    $('preview-wrap').classList.add('show');
+  }
+
+  /* ---------------- Column mapping ---------------- */
+
+  function guessColumn(keywords){
+    const lower = headers.map(h => h.toLowerCase());
+    for (const kw of keywords){
+      const idx = lower.findIndex(h => h.includes(kw));
+      if (idx !== -1) return headers[idx];
+    }
+    return '';
+  }
+
+  function renderMapping(){
+    const guesses = {
+      name: guessColumn(['ชื่อ','name']),
+      date: guessColumn(['วันที่','date','วัน']),
+      type: guessColumn(['ประเภท','กิจกรรม','รายการ','type']),
+      location: guessColumn(['สถานที่','location','สถานี']),
+      time: guessColumn(['เวลา','time']),
+      note: guessColumn(['หมายเหตุ','note','remark'])
+    };
+    fillSelect('map-name', headers, guesses.name, false);
+    fillSelect('map-date', headers, guesses.date, false);
+    fillSelect('map-type', headers, guesses.type, false);
+    fillSelect('map-location', headers, guesses.location, true);
+    fillSelect('map-time', headers, guesses.time, true);
+    fillSelect('map-note', headers, guesses.note, true);
+  }
+
+  function fillSelect(id, opts, selected, optional){
+    const sel = $(id);
+    sel.innerHTML = '';
+    if (optional){
+      const o = document.createElement('option');
+      o.value = ''; o.textContent = '-- ไม่ใช้ --';
+      sel.appendChild(o);
+    }
+    opts.forEach(h => {
+      const o = document.createElement('option');
+      o.value = h; o.textContent = h;
+      if (h === selected) o.selected = true;
+      sel.appendChild(o);
+    });
+  }
+
+  /* ---------------- Date normalization ---------------- */
+
+  function excelSerialToDate(serial){
+    const utcDays = Math.floor(serial - 25569);
+    return new Date(utcDays * 86400 * 1000);
+  }
+
+  function parseDateValue(raw){
+    if (raw instanceof Date && !isNaN(raw)) return raw;
+    if (typeof raw === 'number') return excelSerialToDate(raw);
+    if (typeof raw === 'string'){
+      const s = raw.trim();
+      let m = s.match(/^(\d{4})[\/\-.](\d{1,2})[\/\-.](\d{1,2})/);
+      if (m){
+        let y = +m[1];
+        if (y > 2400) y -= 543;
+        return new Date(y, +m[2]-1, +m[3]);
+      }
+      m = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})/);
+      if (m){
+        let d = +m[1], mo = +m[2], y = +m[3];
+        if (y < 100) y += 2000;
+        if (y > 2400) y -= 543;
+        return new Date(y, mo-1, d);
+      }
+    }
+    return null;
+  }
+
+  function dateKeyOf(d){
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  }
+  function dateDisplayBE(d){
+    const dd = String(d.getDate()).padStart(2,'0');
+    const mm = String(d.getMonth()+1).padStart(2,'0');
+    return `${dd}/${mm}/${d.getFullYear()+543}`;
+  }
+
+  function escapeHtml(s){
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  /* ---------------- Activity type classification ---------------- */
+
+  const ACTIVITY_CATEGORIES = [
+    { name: 'ไปราชการ', keywords: ['ไปราชการ','ราชการ'] },
+    { name: 'ศึกษา อบรม', keywords: ['ศึกษา','อบรม','สัมมนา','ฝึกอบรม','ดูงาน'] },
+    { name: 'ปฏิบัติการพิเศษ', keywords: ['ปฏิบัติการพิเศษ','พิเศษ'] },
+    { name: 'ปฏิบัติงานล่วงเวลา', keywords: ['ล่วงเวลา','นอกเวลา','โอที','ot'] },
+    { name: 'ลาป่วย', keywords: ['ลาป่วย'] },
+    { name: 'ลาพักผ่อน', keywords: ['ลาพักผ่อน','พักผ่อน'] },
+    { name: 'ปฏิบัติงานปกติ', keywords: ['ปกติ','สแกนเข้า','สแกนออก','เข้างาน','ออกงาน'] }
+  ];
+
+  function classifyType(rawText){
+    const t = (rawText || '').toLowerCase();
+    if (!t) return { category: '(ไม่ระบุประเภท)', raw: rawText || '' };
+    for (const cat of ACTIVITY_CATEGORIES){
+      if (cat.keywords.some(kw => t.includes(kw.toLowerCase()))){
+        return { category: cat.name, raw: rawText };
+      }
+    }
+    return { category: rawText.trim(), raw: rawText }; // unrecognized text used as its own category
+  }
+
+  /* ---------------- Analysis ---------------- */
+
+  $('analyze-btn').addEventListener('click', runAnalysis);
+
+  function runAnalysis(){
+    const nameCol = $('map-name').value;
+    const dateCol = $('map-date').value;
+    const typeCol = $('map-type').value;
+    const locCol = $('map-location').value;
+    const timeCol = $('map-time').value;
+    const noteCol = $('map-note').value;
+
+    if (!nameCol || !dateCol || !typeCol){
+      showStatus('กรุณาระบุคอลัมน์ ชื่อ-สกุล, วันที่ และประเภทกิจกรรม ให้ครบก่อนตรวจสอบ', true);
+      return;
+    }
+
+    const normalized = [];
+    skippedCount = 0;
+    rawRows.forEach(r => {
+      const name = String(r[nameCol] ?? '').trim().replace(/\s+/g,' ');
+      const d = parseDateValue(r[dateCol]);
+      const rawType = String(r[typeCol] ?? '').trim();
+      if (!name || !d){ skippedCount++; return; }
+      const cls = classifyType(rawType);
+      normalized.push({
+        name,
+        date: d,
+        dateKey: dateKeyOf(d),
+        dateDisplay: dateDisplayBE(d),
+        type: cls.category,
+        rawType: cls.raw,
+        location: locCol ? String(r[locCol] ?? '').trim() : '',
+        time: timeCol ? String(r[timeCol] ?? '').trim() : '',
+        note: noteCol ? String(r[noteCol] ?? '').trim() : ''
+      });
+    });
+
+    analysisResults = analyze(normalized);
+    renderResults();
+  }
+
+  function formatEntry(e){
+    const showRaw = e.rawType && e.rawType !== e.type;
+    return e.type + (showRaw ? ` [${e.rawType}]` : '') + (e.location ? ` (${e.location})` : '');
+  }
+
+  function analyze(rows){
+    const groups = new Map();
+    rows.forEach(r => {
+      const key = r.name + '||' + r.dateKey;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(r);
+    });
+
+    const results = [];
+    groups.forEach(entries => {
+      const types = [...new Set(entries.map(e => e.type))];
+      let status, statusClass, detail;
+      if (entries.length === 1){
+        status = 'ปกติ'; statusClass = 'ok';
+        detail = formatEntry(entries[0]);
+      } else if (types.length > 1){
+        status = 'พบข้อมูลขัดแย้ง/ซ้ำซ้อน'; statusClass = 'conflict';
+        detail = entries.map(formatEntry).join('  +  ');
+      } else {
+        status = 'พบรายการซ้ำ (ประเภทเดียวกัน)'; statusClass = 'dup';
+        detail = `${types[0]} × ${entries.length} รายการ`;
+      }
+      results.push({
+        name: entries[0].name,
+        dateDisplay: entries[0].dateDisplay,
+        dateKey: entries[0].dateKey,
+        count: entries.length,
+        detail, status, statusClass
+      });
+    });
+
+    const order = { conflict:0, dup:1, ok:2 };
+    results.sort((a,b) =>
+      order[a.statusClass] - order[b.statusClass] ||
+      a.dateKey.localeCompare(b.dateKey) ||
+      a.name.localeCompare(b.name, 'th')
+    );
+    return results;
+  }
+
+  /* ---------------- Render results ---------------- */
+
+  $('filter-select').addEventListener('change', renderResultsTable);
+
+  function renderResults(){
+    const total = analysisResults.reduce((s,r) => s + r.count, 0);
+    const people = new Set(analysisResults.map(r => r.name)).size;
+    const conflicts = analysisResults.filter(r => r.statusClass === 'conflict').length;
+    const dups = analysisResults.filter(r => r.statusClass === 'dup').length;
+
+    $('s-total').textContent = total;
+    $('s-people').textContent = people;
+    $('s-conflict').textContent = conflicts;
+    $('s-dup').textContent = dups;
+
+    if (skippedCount > 0){
+      $('skip-note').style.display = 'block';
+      $('skip-note').textContent = `หมายเหตุ: ข้ามการตรวจสอบ ${skippedCount} แถว เนื่องจากไม่มีชื่อหรือไม่สามารถอ่านวันที่ได้`;
+    } else {
+      $('skip-note').style.display = 'none';
+    }
+
+    renderResultsTable();
+    $('results-wrap').classList.add('show');
+    $('results-wrap').scrollIntoView({ behavior:'smooth', block:'start' });
+  }
+
+  function currentFiltered(){
+    const mode = $('filter-select').value;
+    return mode === 'all' ? analysisResults : analysisResults.filter(r => r.statusClass !== 'ok');
+  }
+
+  function renderResultsTable(){
+    const rows = currentFiltered();
+    if (!rows.length){
+      $('results-table').innerHTML = '<p class="card-desc">ไม่พบรายการตามเงื่อนไขที่เลือก</p>';
+      return;
+    }
+    let html = '<table><thead><tr><th>ลำดับ</th><th>ชื่อ-สกุล</th><th>วันที่</th><th>รายละเอียดที่พบ</th><th>สถานะ</th></tr></thead><tbody>';
+    rows.forEach((r, i) => {
+      html += `<tr>
+        <td>${i+1}</td>
+        <td>${escapeHtml(r.name)}</td>
+        <td>${r.dateDisplay}</td>
+        <td>${escapeHtml(r.detail)}</td>
+        <td><span class="status-tag ${r.statusClass}">${r.status}</span></td>
+      </tr>`;
+    });
+    html += '</tbody></table>';
+    $('results-table').innerHTML = html;
+  }
+
+  /* ---------------- Export: Excel ---------------- */
+
+  $('export-excel').addEventListener('click', () => {
+    const rows = currentFiltered();
+    const data = rows.map((r,i) => ({
+      'ลำดับ': i+1,
+      'ชื่อ-สกุล': r.name,
+      'วันที่': r.dateDisplay,
+      'รายละเอียดที่พบ': r.detail,
+      'สถานะ': r.status
+    }));
+    const ws = XLSX.utils.json_to_sheet(data);
+    ws['!cols'] = [{wch:6},{wch:26},{wch:14},{wch:50},{wch:26}];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'ผลตรวจสอบ');
+    XLSX.writeFile(wb, 'ผลตรวจสอบเบิกซ้ำ.xlsx');
+  });
+
+  /* ---------------- Export: Word ---------------- */
+
+  $('export-word').addEventListener('click', async () => {
+    if (typeof docx === 'undefined'){
+      alert('ไม่สามารถโหลดตัวสร้างไฟล์ Word ได้ กรุณาตรวจสอบการเชื่อมต่ออินเทอร์เน็ต');
+      return;
+    }
+    const { Document, Packer, Paragraph, Table, TableRow, TableCell, TextRun, WidthType, HeadingLevel, AlignmentType } = docx;
+    const rows = currentFiltered();
+
+    const headerCells = ['ลำดับ','ชื่อ-สกุล','วันที่','รายละเอียดที่พบ','สถานะ'].map(h =>
+      new TableCell({ children:[new Paragraph({ children:[new TextRun({ text:h, bold:true, font:'Sarabun' })] })] })
+    );
+
+    const dataRows = rows.map((r,i) => new TableRow({
+      children: [String(i+1), r.name, r.dateDisplay, r.detail, r.status].map(v =>
+        new TableCell({ children:[new Paragraph({ children:[new TextRun({ text:String(v), font:'Sarabun' })] })] })
+      )
+    }));
+
+    const table = new Table({
+      width: { size:100, type: WidthType.PERCENTAGE },
+      rows: [ new TableRow({ children: headerCells }), ...dataRows ]
+    });
+
+    const doc = new Document({
+      sections: [{
+        properties: {},
+        children: [
+          new Paragraph({ children:[new TextRun({ text:'รายงานผลการตรวจสอบข้อมูลเบิกซ้ำ', bold:true, size:32, font:'Sarabun' })] }),
+          new Paragraph({ children:[new TextRun({ text:`วันที่ออกรายงาน: ${dateDisplayBE(new Date())}`, size:20, font:'Sarabun', color:'5b6774' })], spacing:{ after:240 } }),
+          table
+        ]
+      }]
+    });
+
+    const blob = await Packer.toBlob(doc);
+    saveAs(blob, 'ผลตรวจสอบเบิกซ้ำ.docx');
+  });
+
+  /* ---------------- Export: PDF (browser print) ---------------- */
+
+  $('export-pdf').addEventListener('click', () => {
+    const rows = currentFiltered();
+    $('print-meta').textContent = `วันที่ออกรายงาน: ${dateDisplayBE(new Date())}  |  จำนวนรายการ: ${rows.length}`;
+    let html = '<table><thead><tr><th>ลำดับ</th><th>ชื่อ-สกุล</th><th>วันที่</th><th>รายละเอียดที่พบ</th><th>สถานะ</th></tr></thead><tbody>';
+    rows.forEach((r,i) => {
+      html += `<tr><td>${i+1}</td><td>${escapeHtml(r.name)}</td><td>${r.dateDisplay}</td><td>${escapeHtml(r.detail)}</td><td>${r.status}</td></tr>`;
+    });
+    html += '</tbody></table>';
+    $('print-table').innerHTML = html;
+    window.print();
+  });
+
+  /* ---------------- Reset ---------------- */
+
+  $('reset-all').addEventListener('click', resetAll);
+
+  function resetAll(){
+    rawRows = []; headers = []; analysisResults = []; skippedCount = 0;
+    fileInput.value = '';
+    $('file-chip').classList.remove('show');
+    $('preview-wrap').classList.remove('show');
+    $('mapping-card').style.display = 'none';
+    $('results-wrap').classList.remove('show');
+    clearStatus();
+    window.scrollTo({ top:0, behavior:'smooth' });
+  }
+
+})();
+</script>
+</body>
+</html>
